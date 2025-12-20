@@ -87,7 +87,7 @@ func NewControlPlane(
 				grpc_zap.StreamServerInterceptor(zap.NewNop()),
 				func(srv any, ss grpc.ServerStream, info *grpc.StreamServerInfo, handler grpc.StreamHandler) error {
 					slog.Debug("gRPC call", "method", info.FullMethod)
-						return handler(srv, ss)
+					return handler(srv, ss)
 				},
 			)),
 	}
@@ -106,7 +106,12 @@ func NewControlPlane(
 	envoy_service_discovery_v3.RegisterAggregatedDiscoveryServiceServer(grpcServer, xdsServer)
 
 	// Start the server
-	go grpcServer.Serve(listener)
+	go func() {
+		err := grpcServer.Serve(listener)
+		if err != nil {
+			baseLogger.Error("Envoy xDS server failed", slog.String("error", err.Error()))
+		}
+	}()
 
 	// Handle graceful shutdown for both servers
 	go func() {
