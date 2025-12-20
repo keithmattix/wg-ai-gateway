@@ -14,7 +14,7 @@ See the License for the specific language governing permissions and
 limitations under the License.
 */
 
-package envoy
+package controllers
 
 import (
 	"context"
@@ -60,13 +60,14 @@ func NewController(
 		ObjectFilter: client.ObjectFilter(),
 	}
 	inputs := inputs{
-		namespaces:     krt.NewInformer[*corev1.Namespace](client, opts.WithName("Namespaces")...),
-		gatewayClasses: krt.WrapClient(kclient.NewDelayedInformer[*gatewayv1.GatewayClass](client, istiogvr.GatewayClass, kubetypes.StandardInformer, filter), opts.WithName("GatewayClasses")...),
-		gateways:       krt.WrapClient(kclient.NewDelayedInformer[*gatewayv1.Gateway](client, istiogvr.Gateway, kubetypes.StandardInformer, filter), opts.WithName("Gateways")...),
-		httpRoutes:     krt.WrapClient(kclient.NewDelayedInformer[*gatewayv1.HTTPRoute](client, istiogvr.HTTPRoute, kubetypes.StandardInformer, filter), opts.WithName("HTTPRoutes")...),
-		services:       krt.NewInformer[*corev1.Service](client, opts.WithName("Services")...),
-		backends:       krt.WrapClient(kclient.NewDelayedInformer[*aigatewayv0alpha0.Backend](client, gvr.Backend, kubetypes.StandardInformer, filter), opts.WithName("Backends")...),
+		namespaces:     krt.NewInformer[*corev1.Namespace](client, opts.WithName("informer/Namespaces")...),
+		gatewayClasses: krt.WrapClient(kclient.NewDelayedInformer[*gatewayv1.GatewayClass](client, istiogvr.GatewayClass, kubetypes.StandardInformer, filter), opts.WithName("informer/GatewayClasses")...),
+		gateways:       krt.WrapClient(kclient.NewDelayedInformer[*gatewayv1.Gateway](client, istiogvr.Gateway, kubetypes.StandardInformer, filter), opts.WithName("informer/Gateways")...),
+		httpRoutes:     krt.WrapClient(kclient.NewDelayedInformer[*gatewayv1.HTTPRoute](client, istiogvr.HTTPRoute, kubetypes.StandardInformer, filter), opts.WithName("informer/HTTPRoutes")...),
+		services:       krt.NewInformer[*corev1.Service](client, opts.WithName("informer/Services")...),
+		backends:       krt.WrapClient(kclient.NewDelayedInformer[*aigatewayv0alpha0.Backend](client, gvr.Backend, kubetypes.StandardInformer, filter), opts.WithName("informer/Backends")...),
 	}
+
 	return &controller{
 		xdsCache: xdsCache,
 		stop:     stop,

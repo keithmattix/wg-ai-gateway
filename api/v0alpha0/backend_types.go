@@ -41,6 +41,16 @@ type Backend struct {
 	Status BackendStatus `json:"status"`
 }
 
+// +kubebuilder:object:root=true
+// XBackendList contains a list of Backend.
+type BackendList struct {
+	metav1.TypeMeta `json:",inline"`
+	// metadata is a standard list metadata.
+	// +optional
+	metav1.ListMeta `json:"metadata,omitempty"`
+	Items           []Backend `json:"items"`
+}
+
 // BackendSpec defines the desired state of Backend.
 type BackendSpec struct {
 	// destination defines the backend destination to route traffic to.

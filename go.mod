@@ -9,6 +9,7 @@ require (
 	go.uber.org/zap v1.27.0
 	google.golang.org/grpc v1.76.0
 	istio.io/istio v0.0.0-20251218162427-600ea84d2996
+	k8s.io/api v0.34.2
 	k8s.io/apiextensions-apiserver v0.34.2
 	k8s.io/apimachinery v0.34.2
 	k8s.io/client-go v0.34.2
@@ -114,7 +115,6 @@ require (
 	gopkg.in/yaml.v3 v3.0.1 // indirect
 	istio.io/api v1.28.0-alpha.0.0.20251210001900-ce7b5802387c // indirect
 	istio.io/client-go v1.28.0-alpha.0.0.20251210002059-b67694478a4b // indirect
-	k8s.io/api v0.34.2 // indirect
 	k8s.io/apiserver v0.34.2 // indirect
 	k8s.io/kube-openapi v0.0.0-20250814151709-d7b6acb124c3 // indirect
 	k8s.io/utils v0.0.0-20250820121507-0af2bda4dd1d // indirect
