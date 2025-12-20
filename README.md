@@ -21,17 +21,16 @@ discussions and staging proposals which (generally) will be developed into
 proposals for specific Kubernetes Special Interest Groups (SIGs) and their
 sub-projects.
 
-[Gateway API]:https://gateway-api.sigs.k8s.io/
-[egress gateway]:/proposals/10-egress-gateways.md
-[payload processing]:/proposals/7-payload-processing.md
+**Any code contained in this repo is a prototype only and NOT suitable for anything resembling production**
+
 [README]:https://github.com/kubernetes/community/blob/master/wg-ai-gateway/README.md
 [Charter]:https://github.com/kubernetes/community/blob/master/wg-ai-gateway/charter.md
 
 ### Proposals
 
 Please see our [proposals directory](/proposals) to view the proposals we
-have so far. If you'd like to submit a new proposal, please contact us in one of 
-our communication channels to get some feedback and identify potential 
+have so far. If you'd like to submit a new proposal, please contact us in one of
+our communication channels to get some feedback and identify potential
 supporters for your proposal in the community who can help move it forward with you.
 
 ### Prototypes
@@ -53,7 +52,7 @@ You can reach out to members of the community using the following communication 
 - [Mailing List](https://groups.google.com/a/kubernetes.io/g/wg-ai-gateway)
 - [Discussion Board](https://github.com/kubernetes-sigs/wg-ai-gateway/discussions)
 
-Contributions are readily welcomed!  
+Contributions are readily welcomed!
 
 Learn how to engage with the Kubernetes community on the [community page](https://kubernetes.io/community/).
 
