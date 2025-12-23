@@ -47,7 +47,7 @@ import (
 )
 
 type ControlPlane interface {
-	PushXDS()
+	PushXDS(ctx context.Context)
 }
 
 type controlPlane struct {
@@ -162,8 +162,7 @@ func (cp *controlPlane) Run(ctx context.Context) error {
 // 2. Build Listeners, Routes, Clusters, and Endpoints from the translated resources
 // 3. Create a snapshot with those resources
 // 4. Push the snapshot to all registered node IDs
-func (cp *controlPlane) PushXDS() {
-	ctx := context.Background()
+func (cp *controlPlane) PushXDS(ctx context.Context) {
 	logger := slog.Default().With("component", "envoy-controlplane")
 
 	// Increment version for this snapshot
@@ -197,13 +196,21 @@ func (cp *controlPlane) PushXDS() {
 
 	logger.Info("Pushing xDS snapshot to connected proxies", "version", versionStr, "nodeCount", len(nodeIDs))
 
+	successCount := 0
+	failureCount := 0
 	for _, nodeID := range nodeIDs {
 		if err := cp.cache.SetSnapshot(ctx, nodeID, snapshot); err != nil {
 			logger.Error("Failed to set snapshot for node", "error", err, "nodeID", nodeID, "version", versionStr)
+			failureCount++
 			continue
 		}
 		logger.Debug("Successfully pushed snapshot to node", "nodeID", nodeID, "version", versionStr)
+		successCount++
 	}
 
-	logger.Info("Successfully pushed xDS snapshot", "version", versionStr, "nodesUpdated", len(nodeIDs))
+	logger.Info("Completed xDS snapshot push",
+		"version", versionStr,
+		"successCount", successCount,
+		"failureCount", failureCount,
+		"totalNodes", len(nodeIDs))
 }
