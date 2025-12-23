@@ -24,14 +24,18 @@ import (
 	"log/slog"
 	"math"
 	"net"
+	"strconv"
+	"sync/atomic"
 
 	envoy_service_cluster_v3 "github.com/envoyproxy/go-control-plane/envoy/service/cluster/v3"
 	envoy_service_discovery_v3 "github.com/envoyproxy/go-control-plane/envoy/service/discovery/v3"
 	envoy_service_endpoint_v3 "github.com/envoyproxy/go-control-plane/envoy/service/endpoint/v3"
 	envoy_service_listener_v3 "github.com/envoyproxy/go-control-plane/envoy/service/listener/v3"
 	envoy_service_route_v3 "github.com/envoyproxy/go-control-plane/envoy/service/route/v3"
+	"github.com/envoyproxy/go-control-plane/pkg/cache/types"
 	envoycache "github.com/envoyproxy/go-control-plane/pkg/cache/v3"
 	envoylog "github.com/envoyproxy/go-control-plane/pkg/log"
+	envoyresource "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
 	xdsserver "github.com/envoyproxy/go-control-plane/pkg/server/v3"
 	grpc_middleware "github.com/grpc-ecosystem/go-grpc-middleware"
 	grpc_zap "github.com/grpc-ecosystem/go-grpc-middleware/logging/zap"
@@ -47,8 +51,9 @@ type ControlPlane interface {
 }
 
 type controlPlane struct {
-	server xdsserver.Server
-	cache  envoycache.SnapshotCache
+	server          xdsserver.Server
+	cache           envoycache.SnapshotCache
+	snapshotVersion atomic.Uint64
 }
 
 // slogAdapterForEnvoy adapts *slog.Logger to envoylog.Logger interface
@@ -93,8 +98,9 @@ func NewControlPlane(
 	xdsServer := xdsserver.NewServer(ctx, snapshotCache, &callbacks{})
 
 	return &controlPlane{
-		server: xdsServer,
-		cache:  snapshotCache,
+		server:          xdsServer,
+		cache:           snapshotCache,
+		snapshotVersion: atomic.Uint64{},
 	}
 }
 
@@ -145,5 +151,59 @@ func (cp *controlPlane) Run(ctx context.Context) error {
 	return nil
 }
 
-// TODO:
-func (cp *controlPlane) PushXDS() {}
+// PushXDS pushes a new xDS configuration snapshot to all connected Envoy proxies.
+// This method creates a new snapshot with the current xDS resources (listeners, routes, clusters, endpoints)
+// and pushes it to the snapshot cache. The snapshot is then distributed to all connected Envoy proxies
+// that have established xDS streams.
+//
+// Currently, this implementation creates an empty snapshot as a placeholder. In a complete implementation,
+// this would:
+// 1. Translate Gateway API resources into Envoy xDS resources
+// 2. Build Listeners, Routes, Clusters, and Endpoints from the translated resources
+// 3. Create a snapshot with those resources
+// 4. Push the snapshot to all registered node IDs
+func (cp *controlPlane) PushXDS() {
+	ctx := context.Background()
+	logger := slog.Default().With("component", "envoy-controlplane")
+
+	// Increment version for this snapshot
+	version := cp.snapshotVersion.Add(1)
+	versionStr := strconv.FormatUint(version, 10)
+
+	logger.Info("Creating new xDS snapshot", "version", versionStr)
+
+	// TODO: In a complete implementation, this would translate Gateway API resources into xDS resources.
+	// For now, create an empty snapshot to establish the pattern.
+	resources := map[envoyresource.Type][]types.Resource{
+		envoyresource.EndpointType: {},
+		envoyresource.ClusterType:  {},
+		envoyresource.RouteType:    {},
+		envoyresource.ListenerType: {},
+	}
+
+	snapshot, err := envoycache.NewSnapshot(versionStr, resources)
+	if err != nil {
+		logger.Error("Failed to create xDS snapshot", "error", err, "version", versionStr)
+		return
+	}
+
+	// Push snapshot to all connected nodes
+	// GetStatusKeys returns all node IDs that have connected to the xDS server
+	nodeIDs := cp.cache.GetStatusKeys()
+	if len(nodeIDs) == 0 {
+		logger.Debug("No connected Envoy proxies to push xDS configuration to", "version", versionStr)
+		return
+	}
+
+	logger.Info("Pushing xDS snapshot to connected proxies", "version", versionStr, "nodeCount", len(nodeIDs))
+
+	for _, nodeID := range nodeIDs {
+		if err := cp.cache.SetSnapshot(ctx, nodeID, snapshot); err != nil {
+			logger.Error("Failed to set snapshot for node", "error", err, "nodeID", nodeID, "version", versionStr)
+			continue
+		}
+		logger.Debug("Successfully pushed snapshot to node", "nodeID", nodeID, "version", versionStr)
+	}
+
+	logger.Info("Successfully pushed xDS snapshot", "version", versionStr, "nodesUpdated", len(nodeIDs))
+}
