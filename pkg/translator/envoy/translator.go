@@ -8,6 +8,7 @@ import (
 	routev3 "github.com/envoyproxy/go-control-plane/envoy/config/route/v3"
 	envoyproxytypes "github.com/envoyproxy/go-control-plane/pkg/cache/types"
 	resourcev3 "github.com/envoyproxy/go-control-plane/pkg/resource/v3"
+	discoveryv1 "k8s.io/api/discovery/v1"
 	"k8s.io/apimachinery/pkg/api/meta"
 	metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"
 	"k8s.io/apimachinery/pkg/labels"
@@ -15,6 +16,7 @@ import (
 	"k8s.io/apimachinery/pkg/util/sets"
 	"k8s.io/client-go/kubernetes"
 	corev1listers "k8s.io/client-go/listers/core/v1"
+	discoverylisters "k8s.io/client-go/listers/discovery/v1"
 	"k8s.io/klog/v2"
 	gatewayv1 "sigs.k8s.io/gateway-api/apis/v1"
 	gatewayclientset "sigs.k8s.io/gateway-api/pkg/client/clientset/versioned"
@@ -34,12 +36,13 @@ type translator struct {
 	kubeClient    kubernetes.Interface
 	gatewayClient gatewayclientset.Interface
 
-	namespaceLister corev1listers.NamespaceLister
-	serviceLister   corev1listers.ServiceLister
-	secretLister    corev1listers.SecretLister
-	gatewayLister   gatewaylisters.GatewayLister
-	httprouteLister gatewaylisters.HTTPRouteLister
-	backendLister   aigatewaylisters.BackendLister
+	namespaceLister   corev1listers.NamespaceLister
+	serviceLister     corev1listers.ServiceLister
+	secretLister      corev1listers.SecretLister
+	endpointSliceLister discoverylisters.EndpointSliceLister
+	gatewayLister     gatewaylisters.GatewayLister
+	httprouteLister   gatewaylisters.HTTPRouteLister
+	backendLister     aigatewaylisters.BackendLister
 }
 
 // TODO: Implement translation logic
@@ -49,19 +52,21 @@ func New(
 	namespaceLister corev1listers.NamespaceLister,
 	serviceLister corev1listers.ServiceLister,
 	secretLister corev1listers.SecretLister,
+	endpointSliceLister discoverylisters.EndpointSliceLister,
 	gatewayLister gatewaylisters.GatewayLister,
 	httpRouteLister gatewaylisters.HTTPRouteLister,
 	backendLister aigatewaylisters.BackendLister,
 ) Translator {
 	return &translator{
-		kubeClient:      kubeClient,
-		gatewayClient:   gatewayClient,
-		namespaceLister: namespaceLister,
-		serviceLister:   serviceLister,
-		secretLister:    secretLister,
-		gatewayLister:   gatewayLister,
-		httprouteLister: httpRouteLister,
-		backendLister:   backendLister,
+		kubeClient:          kubeClient,
+		gatewayClient:       gatewayClient,
+		namespaceLister:     namespaceLister,
+		serviceLister:       serviceLister,
+		secretLister:        secretLister,
+		endpointSliceLister: endpointSliceLister,
+		gatewayLister:       gatewayLister,
+		httprouteLister:     httpRouteLister,
+		backendLister:       backendLister,
 	}
 }
 
@@ -77,8 +82,8 @@ func (t *translator) TranslateGatewayAndReferencesToXDS(ctx context.Context, gat
 		return nil, err
 	}
 
-	// TODO: Figure out what to do with order statuses
-	xdsResources, _, err := buildXDSFromGatewayAndRoutes(gateway, httpRoutesByListener, httpRouteStatuses)
+	// TODO: Figure out what to do with route statuses
+	xdsResources, _, err := t.buildXDSFromGatewayAndRoutes(gateway, httpRoutesByListener, httpRouteStatuses)
 	if err != nil {
 		return nil, err
 	}
@@ -122,7 +127,7 @@ func (t *translator) gatherRoutesAndParentStatusesForGateway(ctx context.Context
 	return routesByListener, httpRouteStatuses, nil
 }
 
-func (t *translator) listHTTPRoutesForGateway(ctx context.Context, gateway *gatewayv1.Gateway) ([]*gatewayv1.HTTPRoute, error) {
+func (t *translator) listHTTPRoutesForGateway(_ context.Context, gateway *gatewayv1.Gateway) ([]*gatewayv1.HTTPRoute, error) {
 	var httpRoutes []*gatewayv1.HTTPRoute
 	routeList, err := t.httprouteLister.List(labels.Everything())
 	if err != nil {
@@ -269,8 +274,42 @@ func (t *translator) buildXDSFromGatewayAndRoutes(
 	finalEnvoyListeners := []*listenerv3.Listener{}
 	// For each port on the gateway, build an Envoy listener
 	for port, listeners := range listenersByPort {
-		envoyListener, listenerStatuses, err := t.buildEnvoyListenerForPort(gateway, port, listeners, routesByListener, parentStatuses, allListenerStatuses, listenerConflictConditions)
+		envoyListener, listenerStatuses, err := t.buildEnvoyListenerForPort(gateway, port, listeners, routesByListener, parentStatuses, allListenerStatuses, listenerConflictConditions, envoyClusters, &envoyRoutes)
+		if err != nil {
+			return nil, nil, fmt.Errorf("failed to build listener for port %d: %w", port, err)
+		}
+		if envoyListener != nil {
+			finalEnvoyListeners = append(finalEnvoyListeners, envoyListener)
+		}
+		// Update listener statuses
+		for _, ls := range listenerStatuses {
+			allListenerStatuses[ls.Name] = ls
+		}
 	}
+
+	// Convert clusters map to slice
+	clustersSlice := make([]envoyproxytypes.Resource, 0, len(envoyClusters))
+	for _, cluster := range envoyClusters {
+		clustersSlice = append(clustersSlice, cluster)
+	}
+
+	// Convert listeners to resource slice
+	listenerResources := make([]envoyproxytypes.Resource, len(finalEnvoyListeners))
+	for i, listener := range finalEnvoyListeners {
+		listenerResources[i] = listener
+	}
+
+	// Convert listener statuses to ordered slice
+	orderedStatuses := make([]gatewayv1.ListenerStatus, len(gateway.Spec.Listeners))
+	for i, listener := range gateway.Spec.Listeners {
+		orderedStatuses[i] = allListenerStatuses[listener.Name]
+	}
+
+	return map[resourcev3.Type][]envoyproxytypes.Resource{
+		resourcev3.ListenerType: listenerResources,
+		resourcev3.RouteType:    envoyRoutes,
+		resourcev3.ClusterType:  clustersSlice,
+	}, orderedStatuses, nil
 }
 
 func (t *translator) buildEnvoyListenerForPort(
@@ -281,16 +320,20 @@ func (t *translator) buildEnvoyListenerForPort(
 	parentStatuses map[types.NamespacedName][]gatewayv1.RouteParentStatus,
 	allListenerStatuses map[gatewayv1.SectionName]gatewayv1.ListenerStatus,
 	listenerConflictConditions map[gatewayv1.SectionName][]metav1.Condition,
+	envoyClusters map[string]envoyproxytypes.Resource,
+	envoyRoutes *[]envoyproxytypes.Resource,
 ) (*listenerv3.Listener, []gatewayv1.ListenerStatus, error) {
 	var filterChains []*listenerv3.FilterChain
 	virtualHostsforPort := make(map[string]*routev3.VirtualHost)
 	routeName := fmt.Sprintf(constants.RouteNameFormat, port)
+	var listenerStatuses []gatewayv1.ListenerStatus
 
 	// Generate a filter chain for each listener
 	for _, listener := range listeners {
 		var attachedRoutes int32 // the number of routes attached to this listener
 		listenerStatus, isValid := t.validateListener(listener, gateway.Generation, allListenerStatuses, listenerConflictConditions)
 		if !isValid {
+			listenerStatuses = append(listenerStatuses, *listenerStatus)
 			continue // Skip invalid or conflicted listeners
 		}
 
@@ -298,12 +341,111 @@ func (t *translator) buildEnvoyListenerForPort(
 		switch listener.Protocol {
 		case gatewayv1.HTTPProtocolType, gatewayv1.HTTPSProtocolType:
 			for _, route := range routesByListener[listener.Name] {
-				
+				routes, allValidBackends, resolvedRefsCondition := translateHTTPRouteToEnvoyRoutes(route, t.serviceLister, t.backendLister)
+
+				// Update the route status with ResolvedRefs condition
+				key := types.NamespacedName{Name: route.Name, Namespace: route.Namespace}
+				currentParentStatuses := parentStatuses[key]
+				for i := range currentParentStatuses {
+					// Only add the ResolvedRefs condition if the parent was Accepted.
+					if meta.IsStatusConditionTrue(currentParentStatuses[i].Conditions, string(gatewayv1.RouteConditionAccepted)) {
+						meta.SetStatusCondition(&currentParentStatuses[i].Conditions, resolvedRefsCondition)
+					}
+				}
+				parentStatuses[key] = currentParentStatuses
+
+				// Build clusters from backends
+				clusters, err := t.buildClustersFromBackends(allValidBackends)
+				if err != nil {
+					return nil, nil, fmt.Errorf("failed to build clusters from HTTPRoute %s/%s: %w", route.Namespace, route.Name, err)
+				}
+				for _, cluster := range clusters {
+					envoyClusters[cluster.Name] = cluster
+				}
+
+				// Aggregate Envoy routes into VirtualHosts
+				if len(routes) > 0 {
+					attachedRoutes++
+					// Get the domain for this listener's VirtualHost
+					vhostDomains := getIntersectingHostnames(listener, route.Spec.Hostnames)
+					for _, domain := range vhostDomains {
+						vh, ok := virtualHostsforPort[domain]
+						if !ok {
+							vh = &routev3.VirtualHost{
+								Name:    fmt.Sprintf(constants.VHostNameFormat, gateway.Name, port, domain),
+								Domains: []string{domain},
+							}
+							virtualHostsforPort[domain] = vh
+						}
+						vh.Routes = append(vh.Routes, routes...)
+					}
+				}
 			}
+
+			// Create filter chain for this listener
+			filterChain, err := t.translateListenerToFilterChain(gateway, listener, routeName)
+			if err != nil {
+				meta.SetStatusCondition(&listenerStatus.Conditions, metav1.Condition{
+					Type:               string(gatewayv1.ListenerConditionProgrammed),
+					Status:             metav1.ConditionFalse,
+					Reason:             string(gatewayv1.ListenerReasonInvalid),
+					Message:            fmt.Sprintf("Failed to program listener: %v", err),
+					ObservedGeneration: gateway.Generation,
+				})
+			} else {
+				meta.SetStatusCondition(&listenerStatus.Conditions, metav1.Condition{
+					Type:               string(gatewayv1.ListenerConditionProgrammed),
+					Status:             metav1.ConditionTrue,
+					Reason:             string(gatewayv1.ListenerReasonProgrammed),
+					Message:            "Listener is programmed",
+					ObservedGeneration: gateway.Generation,
+				})
+				filterChains = append(filterChains, filterChain)
+			}
+
 		default:
 			klog.Warningf("Unsupported listener protocol %s for routing on Gateway %s", listener.Protocol, types.NamespacedName{Name: gateway.Name, Namespace: gateway.Namespace}.String())
 		}
+
+		listenerStatus.AttachedRoutes = attachedRoutes
+		meta.SetStatusCondition(&listenerStatus.Conditions, metav1.Condition{
+			Type:               string(gatewayv1.ListenerConditionAccepted),
+			Status:             metav1.ConditionTrue,
+			Reason:             string(gatewayv1.ListenerReasonAccepted),
+			Message:            "Listener is valid",
+			ObservedGeneration: gateway.Generation,
+		})
+		allListenerStatuses[listener.Name] = *listenerStatus
+		listenerStatuses = append(listenerStatuses, *listenerStatus)
 	}
+
+	// Create RouteConfiguration (one per port group) with virtual hosts
+	allVirtualHosts := make([]*routev3.VirtualHost, 0, len(virtualHostsforPort))
+	for _, vh := range virtualHostsforPort {
+		// Sort routes by precedence
+		sortRoutes(vh.Routes)
+		allVirtualHosts = append(allVirtualHosts, vh)
+	}
+
+	// Create route configuration
+	routeConfig := &routev3.RouteConfiguration{
+		Name:                     routeName,
+		VirtualHosts:             allVirtualHosts,
+		IgnorePortInHostMatching: true,
+	}
+	*envoyRoutes = append(*envoyRoutes, routeConfig)
+
+	// Create Envoy Listener if there are any filter chains
+	if len(filterChains) > 0 {
+		envoyListener := &listenerv3.Listener{
+			Name:         fmt.Sprintf(constants.ListenerNameFormat, port),
+			Address:      t.createEnvoyAddress(uint32(port)),
+			FilterChains: filterChains,
+		}
+		return envoyListener, listenerStatuses, nil
+	}
+
+	return nil, listenerStatuses, nil
 }
 
 // validateListener checks a single listener for conflicts and returns whether it is valid
