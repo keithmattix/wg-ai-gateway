@@ -29,7 +29,7 @@ import (
 
 // buildClustersFromBackends creates Envoy clusters from Backend resources
 // Creates one cluster per port declared on each backend
-func (t *translator) buildClustersFromBackends(backends []*aigatewayv0alpha0.Backend) ([]*clusterv3.Cluster, error) {
+func (t *translator) buildClustersFromBackends(backends []*aigatewayv0alpha0.XBackendDestination) ([]*clusterv3.Cluster, error) {
 	var clusters []*clusterv3.Cluster
 
 	for _, backend := range backends {
@@ -64,7 +64,7 @@ func (t *translator) buildClustersFromBackends(backends []*aigatewayv0alpha0.Bac
 				}
 				cluster.LoadAssignment = t.createClusterLoadAssignment(clusterName, backend.Spec.Destination.FQDN.Hostname, port)
 
-			case aigatewayv0alpha0.BackendTypeKubernetesService:
+			case aigatewayv0alpha0.BackendTypeService:
 				// For Kubernetes services, use EDS to get endpoints directly
 				cluster.ClusterDiscoveryType = &clusterv3.Cluster_Type{Type: clusterv3.Cluster_EDS}
 				cluster.EdsClusterConfig = &clusterv3.Cluster_EdsClusterConfig{

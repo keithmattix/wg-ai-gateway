@@ -35,10 +35,10 @@ func (e *ControllerError) Error() string {
 func translateHTTPRouteToEnvoyRoutes(
 	httpRoute *gatewayv1.HTTPRoute,
 	serviceLister corev1listers.ServiceLister,
-	backendLister aigatewaylisters.BackendLister,
-) ([]*routev3.Route, []*aigatewayv0alpha0.Backend, metav1.Condition) {
+	backendLister aigatewaylisters.XBackendDestinationLister,
+) ([]*routev3.Route, []*aigatewayv0alpha0.XBackendDestination, metav1.Condition) {
 	var envoyRoutes []*routev3.Route
-	var allValidBackends []*aigatewayv0alpha0.Backend
+	var allValidBackends []*aigatewayv0alpha0.XBackendDestination
 	overallCondition := createSuccessCondition(httpRoute.Generation)
 
 	for ruleIndex, rule := range httpRoute.Spec.Rules {
@@ -350,10 +350,10 @@ func buildHTTPRouteAction(
 	namespace string,
 	backendRefs []gatewayv1.HTTPBackendRef,
 	serviceLister corev1listers.ServiceLister,
-	backendLister aigatewaylisters.BackendLister,
-) (*routev3.RouteAction, []*aigatewayv0alpha0.Backend, error) {
+	backendLister aigatewaylisters.XBackendDestinationLister,
+) (*routev3.RouteAction, []*aigatewayv0alpha0.XBackendDestination, error) {
 	weightedClusters := &routev3.WeightedCluster{}
-	var validBackends []*aigatewayv0alpha0.Backend
+	var validBackends []*aigatewayv0alpha0.XBackendDestination
 
 	for _, httpBackendRef := range backendRefs {
 		backend, err := fetchBackend(namespace, httpBackendRef.BackendRef, backendLister, serviceLister)
@@ -412,9 +412,9 @@ func buildHTTPRouteAction(
 func fetchBackend(
 	namespace string,
 	backendRef gatewayv1.BackendRef,
-	backendLister aigatewaylisters.BackendLister,
+	backendLister aigatewaylisters.XBackendDestinationLister,
 	serviceLister corev1listers.ServiceLister,
-) (*aigatewayv0alpha0.Backend, error) {
+) (*aigatewayv0alpha0.XBackendDestination, error) {
 	// Determine the namespace for the backend
 	backendNamespace := namespace
 	if backendRef.Namespace != nil {
@@ -425,7 +425,7 @@ func fetchBackend(
 	switch *backendRef.Kind {
 	case "Backend":
 		// Fetch the Backend resource
-		backend, err := backendLister.Backends(backendNamespace).Get(string(backendRef.Name))
+		backend, err := backendLister.XBackendDestinations(backendNamespace).Get(string(backendRef.Name))
 		if err != nil {
 			if apierrors.IsNotFound(err) {
 				return nil, &ControllerError{
@@ -450,7 +450,9 @@ func fetchBackend(
 			return nil, err
 		}
 
-		// Create a synthetic Backend for the Service
+		// TODO: This is incorrect; for regular Kubernetes services, we just need to confirm they exist.
+		// We don't need a synthetic backend because we can handle services directly (i.e. by serving the
+		// corresponding EndpointSlices via EDS).
 		return createSyntheticBackendFromService(svc, backendRef.Port), nil
 
 	default:
@@ -462,18 +464,18 @@ func fetchBackend(
 }
 
 // createSyntheticBackendFromService creates a Backend resource representation from a Kubernetes Service
-func createSyntheticBackendFromService(svc *corev1.Service, port *gatewayv1.PortNumber) *aigatewayv0alpha0.Backend {
+func createSyntheticBackendFromService(svc *corev1.Service, port *gatewayv1.PortNumber) *aigatewayv0alpha0.XBackendDestination {
 	// This creates a synthetic Backend that represents the Kubernetes Service
 	// In a real implementation, you might want to cache these or handle them differently
-	backend := &aigatewayv0alpha0.Backend{
+	backend := &aigatewayv0alpha0.XBackendDestination{
 		ObjectMeta: metav1.ObjectMeta{
 			Name:      svc.Name,
 			Namespace: svc.Namespace,
 			UID:       types.UID(fmt.Sprintf("synthetic-%s-%s", svc.Namespace, svc.Name)),
 		},
-		Spec: aigatewayv0alpha0.BackendSpec{
+		Spec: aigatewayv0alpha0.XBackendDestinationSpec{
 			Destination: aigatewayv0alpha0.BackendDestination{
-				Type: aigatewayv0alpha0.BackendTypeKubernetesService,
+				Type: aigatewayv0alpha0.BackendTypeService,
 				// For a Service backend, we don't populate FQDN since it's cluster-internal
 			},
 		},
