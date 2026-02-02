@@ -473,8 +473,11 @@ func createSyntheticBackendFromService(svc *corev1.Service, port *gatewayv1.Port
 		},
 		Spec: aigatewayv0alpha0.BackendSpec{
 			Destination: aigatewayv0alpha0.BackendDestination{
-				Type: aigatewayv0alpha0.BackendTypeKubernetesService,
-				// For a Service backend, we don't populate FQDN since it's cluster-internal
+				Type: aigatewayv0alpha0.BackendTypeService,
+				Service: &aigatewayv0alpha0.ServiceBackend{
+					Name:      svc.Name,
+					Namespace: svc.Namespace,
+				},
 			},
 		},
 	}

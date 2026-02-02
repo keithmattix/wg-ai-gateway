@@ -26,6 +26,8 @@ import (
 type Interface interface {
 	// XBackendDestinations returns a XBackendDestinationInformer.
 	XBackendDestinations() XBackendDestinationInformer
+	// Backends returns a XBackendDestinationInformer (alias for backwards compatibility).
+	Backends() XBackendDestinationInformer
 }
 
 type version struct {
@@ -42,4 +44,9 @@ func New(f internalinterfaces.SharedInformerFactory, namespace string, tweakList
 // XBackendDestinations returns a XBackendDestinationInformer.
 func (v *version) XBackendDestinations() XBackendDestinationInformer {
 	return &xBackendDestinationInformer{factory: v.factory, namespace: v.namespace, tweakListOptions: v.tweakListOptions}
+}
+
+// Backends returns a XBackendDestinationInformer (alias for backwards compatibility).
+func (v *version) Backends() XBackendDestinationInformer {
+	return v.XBackendDestinations()
 }

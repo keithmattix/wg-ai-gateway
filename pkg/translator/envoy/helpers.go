@@ -64,7 +64,7 @@ func (t *translator) buildClustersFromBackends(backends []*aigatewayv0alpha0.Bac
 				}
 				cluster.LoadAssignment = t.createClusterLoadAssignment(clusterName, backend.Spec.Destination.FQDN.Hostname, port)
 
-			case aigatewayv0alpha0.BackendTypeKubernetesService:
+			case aigatewayv0alpha0.BackendTypeService:
 				// For Kubernetes services, use EDS to get endpoints directly
 				cluster.ClusterDiscoveryType = &clusterv3.Cluster_Type{Type: clusterv3.Cluster_EDS}
 				cluster.EdsClusterConfig = &clusterv3.Cluster_EdsClusterConfig{

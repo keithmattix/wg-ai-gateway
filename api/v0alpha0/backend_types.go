@@ -242,3 +242,15 @@ type XBackendDestinationControllerStatus struct {
 	// +optional
 	Conditions []metav1.Condition `json:"conditions,omitempty"`
 }
+
+// Backend is an alias for XBackendDestination for backwards compatibility
+// during the rename process.
+type Backend = XBackendDestination
+
+// BackendList is an alias for XBackendDestinationList for backwards compatibility
+// during the rename process.
+type BackendList = XBackendDestinationList
+
+// BackendSpec is an alias for XBackendDestinationSpec for backwards compatibility
+// during the rename process.
+type BackendSpec = XBackendDestinationSpec

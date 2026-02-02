@@ -259,7 +259,7 @@ func (t *translator) buildEDSResources(allBackends []*aigatewayv0alpha0.Backend)
 
 	for _, backend := range allBackends {
 		// Only generate EDS for Kubernetes Service backends
-		if backend.Spec.Destination.Type != aigatewayv0alpha0.BackendTypeKubernetesService {
+		if backend.Spec.Destination.Type != aigatewayv0alpha0.BackendTypeService {
 			continue
 		}
 

@@ -129,7 +129,7 @@ func NewController(
 		},
 		aigateway: &aiGatewayResources{
 			client:        aigatewayClient,
-			backendLister: aigatewayInformerFactory.Ainetworking().V0alpha0().Backends().Lister(),
+			backendLister: aigatewaylisters.NewBackendLister(aigatewayInformerFactory.Ainetworking().V0alpha0().Backends().Lister()),
 		},
 		stop:            ctx.Done(),
 		envoyProxyImage: envoyProxyImage,
@@ -147,7 +147,7 @@ func NewController(
 			kubeInformerFactory.Discovery().V1().EndpointSlices().Lister(),
 			gatewayInformerFactory.Gateway().V1().Gateways().Lister(),
 			gatewayInformerFactory.Gateway().V1().HTTPRoutes().Lister(),
-			aigatewayInformerFactory.Ainetworking().V0alpha0().Backends().Lister(),
+			aigatewaylisters.NewBackendLister(aigatewayInformerFactory.Ainetworking().V0alpha0().Backends().Lister()),
 		),
 	}
 
